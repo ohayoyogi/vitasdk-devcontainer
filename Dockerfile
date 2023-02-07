@@ -1,4 +1,15 @@
-FROM ubuntu:22.04 AS base
+FROM ubuntu:22.04 AS builder
+
+RUN apt-get update \
+    && apt-get install -y cmake git build-essential autoconf libtool texinfo texinfo bison flex pkg-config python3 python-is-python3
+
+RUN git clone https://github.com/ohayoyogi/buildscripts -b feature/libelf_gnu_config_patch /src \
+    && mkdir /src/build \
+    && cd /src/build \
+    && cmake .. \
+    && make -j$(nproc)
+
+FROM ubuntu:22.04 AS devcontainer
 
 RUN apt-get update \
     && apt-get install -y make git-core cmake python-is-python3 python3 \
@@ -6,15 +17,6 @@ RUN apt-get update \
 
 ENV VITASDK=/usr/local/vitasdk
 ENV PATH=$VITASDK/bin:$PATH
-
-FROM base AS vdpm
-
-RUN git clone https://github.com/vitasdk/vdpm \
-    && cd vdpm \
-    && ./bootstrap-vitasdk.sh \
-    && ./install-all.sh
-
-FROM base AS devcontainer
 
 ARG USERNAME=ubuntu
 ARG USER_UID=1000
@@ -24,7 +26,9 @@ ARG USER_GID=$USER_UID
 RUN groupadd --gid $USER_GID $USERNAME \
     && useradd --uid $USER_UID --gid $USER_GID -m -s /bin/bash $USERNAME \
     && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
-    && chmod 0440 /etc/sudoers.d/$USERNAME
+    && chmod 0440 /etc/sudoers.d/$USERNAME \
+    && echo "export VITASDK=${VITASDK}" > /etc/profile.d/vitasdk.sh \
+    && echo 'export PATH=$PATH:$VITASDK/bin'  >> /etc/profile.d/vitasdk.sh
 
 # Create bash_history
 RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
@@ -44,4 +48,4 @@ RUN apt-get update \
 
 USER ${USERNAME}
 
-COPY --from=vdpm --chown=${USERNAME}:${USERNAME} /usr/local/vitasdk /usr/local/vitasdk
+COPY --from=builder --chown=${USERNAME}:${USERNAME} /src/build/vitasdk ${VITASDK}
